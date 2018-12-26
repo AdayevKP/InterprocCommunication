@@ -3,7 +3,7 @@
 #include <sys/mman.h>
 #include "connector.h"
 
-#define BUFFER_SIZE 4
+#define BUFFER_SIZE 100
 
 void* buffer = NULL;
 int connected = false;

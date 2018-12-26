@@ -12,11 +12,14 @@
 #include <math.h>
 #include <limits.h>
 #include <string.h>
+#include <signal.h>
 #include <iostream>
 #include <syslog.h>
 #include "connector.h"
 
 #define N 4
+#define MAX 100
+#define EXIT "exit"
 
 using namespace std;
 
@@ -65,21 +68,28 @@ void initSemaphores()
 void runHost()
 {
     int i, ans;
-    char str[PATH_MAX];
+    char str[MAX];
     while(true)
     {
         gets(str);
+
         for(i=0; i < N; i++){
-            if (write(&str, PATH_MAX*sizeof(char)) == 0)
+            if (write(&str, MAX*sizeof(char)) == 0)
                 syslog(LOG_INFO, "no connection");
 
             sem_post(clientSemaphores[i]);
             sem_wait(hostSemaphore);
 
-            if(read(&str, PATH_MAX*sizeof(int)) == 0)
-                syslog(LOG_INFO, "no connection");
-            cout << "answer from " << i << " expert is: " << str << "\n";
+            if(strcmp(str, EXIT) != 0)
+            {
+                if(read(&str, MAX*sizeof(char)) == 0)
+                    syslog(LOG_INFO, "no connection");
+                cout << "answer from " << i << " expert is: " << str << "\n";
+            }
         }
+
+        if(strcmp(str, EXIT) == 0)
+            return;
     }
 	return;
 }
@@ -87,18 +97,24 @@ void runHost()
 void runClient(int i)
 {
 	int answer;
-	char str[PATH_MAX];
-    char strAns[PATH_MAX];
+	char str[MAX];
+    char strAns[MAX];
 	srand(i);
 	while(true)
 	{
 	    sem_wait(clientSemaphores[i]);
-        if (read(str, PATH_MAX*sizeof(char)) == 0)
+        if (read(str, MAX*sizeof(char)) == 0)
             syslog(LOG_INFO, "no connection");
+
+        if(strcmp(str, EXIT) == 0)
+        {
+            sem_post(hostSemaphore);
+            exit(EXIT_SUCCESS);
+        }
 
         answer = rand() % 4;
         strcpy(strAns, answers[answer]);
-	    if (write(&strAns, PATH_MAX*sizeof(int)) == 0)
+	    if (write(&strAns, MAX*sizeof(char)) == 0)
             syslog(LOG_INFO, "no connection");
 	    sem_post(hostSemaphore);
     }
@@ -116,7 +132,12 @@ int main(void)
         {
             syslog(LOG_INFO, "forked");
             runClient(i);
-            continue;
+            if(haveConnection())
+            {
+                syslog(LOG_INFO, "destroy connection");
+                destroyConnection();
+            }
+            return 0;
         }
         else if (pid < 0) {
             syslog(LOG_INFO, "fork error");
